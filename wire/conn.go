@@ -138,13 +138,21 @@ func (c *P2PoolConnection) ParseMessage(command string, payload []byte) (P2PoolM
 		msg = &MsgAddrs{}
 	case "have_tx":
 		msg = &MsgHaveTx{}
+	case "bestblock":
+		msg = &MsgBestBlock{}
 	case "remember_tx":
 		msg = &MsgRememberTx{}
+	case "forget_tx":
+		msg = &MsgForgetTx{}
+	case "losing_tx":
+		msg = &MsgLosingTx{}
+	case "shares":
+		msg = &MsgShares{}
 	default:
 		return msg, fmt.Errorf("Unknown command %s", command)
 	}
-	msg.FromBytes(payload)
-	return msg, nil
+	err := msg.FromBytes(payload)
+	return msg, err
 }
 
 func (c *P2PoolConnection) OutgoingLoop() {
@@ -167,4 +175,8 @@ func (c *P2PoolConnection) OutgoingLoop() {
 		c.conn.Write(calcChecksum[:4])
 		c.conn.Write(payload)
 	}
+}
+
+func (c *P2PoolConnection) Close() error {
+	return c.conn.Close()
 }
