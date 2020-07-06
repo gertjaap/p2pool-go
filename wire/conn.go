@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
+	"log"
 	"net"
 	"sync"
 
@@ -47,13 +48,23 @@ func NewP2PoolConnection(c net.Conn, n p2pnet.Network) *P2PoolConnection {
 
 func (c *P2PoolConnection) ReadBytes(len int) ([]byte, error) {
 	buf := make([]byte, len)
-	r, err := c.conn.Read(buf)
-	if err != nil {
-		return nil, err
+	if len == 0 {
+		return buf, nil
 	}
-
-	if r != len {
-		return nil, fmt.Errorf("Unexpected read count (expected %d, got %d)", len, r)
+	read := 0
+	for {
+		r, err := c.conn.Read(buf[read:])
+		if err != nil {
+			return nil, err
+		}
+		if r == 0 {
+			return nil, fmt.Errorf("Could not read enough bytes")
+		}
+		read += r
+		if read == len {
+			break
+		}
+		log.Printf("Read %d bytes - len = %d", read, len)
 	}
 
 	return buf, nil
@@ -138,13 +149,25 @@ func (c *P2PoolConnection) ParseMessage(command string, payload []byte) (P2PoolM
 		msg = &MsgAddrs{}
 	case "have_tx":
 		msg = &MsgHaveTx{}
+	case "bestblock":
+		msg = &MsgBestBlock{}
 	case "remember_tx":
 		msg = &MsgRememberTx{}
+	case "forget_tx":
+		msg = &MsgForgetTx{}
+	case "losing_tx":
+		msg = &MsgLosingTx{}
+	case "shares":
+		msg = &MsgShares{}
+	case "sharereply":
+		msg = &MsgShareReply{}
+	case "sharereq":
+		msg = &MsgShareReq{}
 	default:
 		return msg, fmt.Errorf("Unknown command %s", command)
 	}
-	msg.FromBytes(payload)
-	return msg, nil
+	err := msg.FromBytes(payload)
+	return msg, err
 }
 
 func (c *P2PoolConnection) OutgoingLoop() {
@@ -167,4 +190,8 @@ func (c *P2PoolConnection) OutgoingLoop() {
 		c.conn.Write(calcChecksum[:4])
 		c.conn.Write(payload)
 	}
+}
+
+func (c *P2PoolConnection) Close() error {
+	return c.conn.Close()
 }

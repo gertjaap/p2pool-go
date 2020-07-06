@@ -1,67 +1,31 @@
 package main
 
 import (
-	"math/rand"
-	sysnet "net"
+	"encoding/hex"
+	"time"
 
 	"github.com/gertjaap/p2pool-go/logging"
 	p2pnet "github.com/gertjaap/p2pool-go/net"
-	"github.com/gertjaap/p2pool-go/util"
+	"github.com/gertjaap/p2pool-go/p2p"
 	"github.com/gertjaap/p2pool-go/wire"
+	"github.com/gertjaap/p2pool-go/work"
 )
 
 func main() {
-
-	net := p2pnet.Vertcoin()
-
 	logging.SetLogLevel(int(logging.LogLevelDebug))
 
-	addrs, err := sysnet.LookupIP("p2proxy.vertcoin.org")
+	m := &wire.MsgShares{}
+	b, _ := hex.DecodeString("0111fd0b01fe00000020eb400edde9c93272c3e3c74c58ca47ee4280fc68a4a6af658d270394978b7d55dc13035fbaae001b1029d544c58ddfe53843917f5491185695d0a6143f2fd5e364141557df971a164c1684c60403020f1510f6db71531e9692d87cf03c0340e3b0491150d752c2d5d44700f90295000000008f0200110000000000000000000000000000000000000000000000000000000000000000000000381419829e6b838121edf10fd958f5354cc03b960dc385f09b28f1a565891ab6115b051dc5b32d1ce513035ff2b52d0093ae67bd4f06080500000000000000000000000000b6f00000cf4dbba0589d15681e43b17de1fd2079f3e8d58e2336c81b563575bfc268e6adfdad0200")
+	err := m.FromBytes(b)
 	if err != nil {
 		panic(err)
 	}
 
-	c, err := wire.NewP2PoolClient("p2proxy.vertcoin.org", net)
-	if err != nil {
-		panic(err)
-	}
-
-	myIP, err := util.GetMyPublicIP()
-	if err != nil {
-		panic(err)
-	}
-	c.Outgoing <- &wire.MsgVersion{
-		Version:  1800,
-		Services: 0,
-		AddrTo: wire.P2PoolAddress{
-			Services: 0,
-			Address:  addrs[0],
-			Port:     int16(net.P2PPort),
-		},
-		AddrFrom: wire.P2PoolAddress{
-			Services: 0,
-			Address:  myIP,
-			Port:     int16(net.P2PPort),
-		},
-		Nonce:      int64(rand.Uint64()),
-		SubVersion: "0.7.2",
-		Mode:       1,
-	}
-
-	c.Outgoing <- &wire.MsgGetAddrs{
-		Count: 10,
-	}
-
-	for msg := range c.Incoming {
-		logging.Debugf("Received incoming message [%s]", msg.Command())
-		switch t := msg.(type) {
-		case *wire.MsgVersion:
-			logging.Debugf("Received version message - Version [%d] - Best Share [%s]", t.Version, t.BestShareHash.String())
-		case *wire.MsgAddrs:
-			logging.Debugf("Received addresses:")
-			for _, a := range t.Addresses {
-				logging.Debugf("Timestamp [%d] - IP [%s]", a.Timestamp, a.Address.Address.String())
-			}
-		}
+	sc := work.NewShareChain()
+	pm := p2p.NewPeerManager(p2pnet.Vertcoin(), sc.SharesChannel)
+	pm.AskForShare(m.Shares[0].ShareInfo.ShareData.PreviousShareHash)
+	for {
+		logging.Debugf("Number of active peers: %d", pm.GetPeerCount())
+		time.Sleep(time.Second * 5)
 	}
 }
