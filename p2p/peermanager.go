@@ -1,10 +1,12 @@
 package p2p
 
 import (
-	"math/rand"
 	"net"
 	"sync"
 	"time"
+
+	"github.com/gertjaap/p2pool-go/util"
+	"github.com/gertjaap/p2pool-go/work"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/gertjaap/p2pool-go/logging"
@@ -16,20 +18,20 @@ type PeerManager struct {
 	Network           p2poolnet.Network
 	peers             []*Peer
 	possiblePeers     []wire.Addr
-	sharesChannel     chan []wire.Share
+	shareChain        *work.ShareChain
 	askSharesChan     chan *chainhash.Hash
 	peersLock         sync.Mutex
 	possiblePeersLock sync.Mutex
 }
 
-func NewPeerManager(n p2poolnet.Network, sharesChannel chan []wire.Share) *PeerManager {
+func NewPeerManager(n p2poolnet.Network, sc *work.ShareChain) *PeerManager {
 	p := &PeerManager{
 		Network:           n,
 		peers:             make([]*Peer, 0),
 		possiblePeers:     make([]wire.Addr, 0),
 		peersLock:         sync.Mutex{},
 		possiblePeersLock: sync.Mutex{},
-		sharesChannel:     sharesChannel,
+		shareChain:        sc,
 		askSharesChan:     make(chan *chainhash.Hash, 100),
 	}
 
@@ -82,13 +84,15 @@ func (p *PeerManager) ShareAskLoop() {
 		if len(p.peers) > 0 {
 			h := <-p.askSharesChan
 			for _, pr := range p.peers {
-				idBytes := make([]byte, 32)
-				rand.Read(idBytes)
-				id, _ := chainhash.NewHash(idBytes)
+				stops := make([]*chainhash.Hash, 0)
+				tip := p.shareChain.GetTipHash()
+				if tip != nil {
+					stops = append(stops, tip)
+				}
 				pr.Connection.Outgoing <- &wire.MsgShareReq{
-					ID:      id,
-					Parents: 0,
-					Stops:   make([]*chainhash.Hash, 0),
+					ID:      util.GetRandomId(),
+					Parents: 100,
+					Stops:   stops,
 					Hashes:  []*chainhash.Hash{h},
 				}
 			}
@@ -136,13 +140,32 @@ func (p *PeerManager) AddPeer(ip net.IP) error {
 func (p *PeerManager) AddPeerWithPort(ip net.IP, port int) error {
 	newPeers := make(chan []wire.Addr, 10)
 	closed := make(chan bool, 1)
-	peer, err := NewPeer(ip, port, p.Network, newPeers, closed, p.sharesChannel)
+	peer, err := NewPeer(ip, port, p.Network, newPeers, closed, p.shareChain.SharesChannel)
 	if err != nil {
 		return err
 	}
 	p.peersLock.Lock()
 	p.peers = append(p.peers, peer)
 	p.peersLock.Unlock()
+
+	stops := make([]*chainhash.Hash, 0)
+	tip := p.shareChain.GetTipHash()
+	skipAsk := false
+	if tip != nil {
+		stops = append(stops, tip)
+		if tip.IsEqual(peer.versionInfo.BestShareHash) {
+			skipAsk = true
+		}
+	}
+
+	if !skipAsk {
+		peer.Connection.Outgoing <- &wire.MsgShareReq{
+			ID:      util.GetRandomId(),
+			Parents: 100,
+			Stops:   stops,
+			Hashes:  []*chainhash.Hash{peer.versionInfo.BestShareHash},
+		}
+	}
 
 	go p.NewPeersHandler(newPeers)
 	go p.ClosedHandler(peer, closed)

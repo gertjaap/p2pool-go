@@ -2,14 +2,16 @@ package wire
 
 import (
 	"bytes"
-	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
 	"io"
 	"log"
 	"math/big"
+	"time"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	btcwire "github.com/btcsuite/btcd/wire"
+	"github.com/gertjaap/p2pool-go/logging"
 	p2pnet "github.com/gertjaap/p2pool-go/net"
 	"github.com/gertjaap/p2pool-go/util"
 )
@@ -30,6 +32,8 @@ type Share struct {
 	MerkleLink     []*chainhash.Hash
 	GenTXHash      *chainhash.Hash
 	MerkleRoot     *chainhash.Hash
+	RefHash        *chainhash.Hash
+	Hash           *chainhash.Hash
 }
 
 type HashLink struct {
@@ -38,11 +42,11 @@ type HashLink struct {
 }
 
 type SmallBlockHeader struct {
-	Version       uint64
+	Version       int32
 	PreviousBlock *chainhash.Hash
-	Timestamp     int32
-	Bits          int32
-	Nonce         int32
+	Timestamp     uint32
+	Bits          uint32
+	Nonce         uint32
 }
 
 type Ref struct {
@@ -96,12 +100,6 @@ type SegwitData struct {
 	WTXIDMerkleRoot *chainhash.Hash
 }
 
-func (s Share) Hash() *chainhash.Hash {
-	b := make([]byte, 32)
-	h, _ := chainhash.NewHash(b)
-	return h
-}
-
 func GetRefHash(n p2pnet.Network, si ShareInfo, refMerkleLink []*chainhash.Hash, segwit bool) (*chainhash.Hash, error) {
 	r := Ref{
 		Identifier: string(n.Identifier),
@@ -114,7 +112,9 @@ func GetRefHash(n p2pnet.Network, si ShareInfo, refMerkleLink []*chainhash.Hash,
 		return nil, err
 	}
 
+	logging.Debugf("get_ref_hash_check_merkle_link_hash_input: %x", buf.Bytes())
 	tip, _ := chainhash.NewHash(util.Sha256d(buf.Bytes()))
+	logging.Debugf("get_ref_hash_check_merkle_link_input: %x", tip.CloneBytes())
 	return CalcMerkleLink(tip, refMerkleLink, 0)
 }
 
@@ -142,12 +142,11 @@ func CalcHashLink(hl HashLink, data []byte, ending []byte) (*chainhash.Hash, err
 	extralength := hl.Length % 64
 	extra := ending[len(ending)-int(extralength):]
 
-	s := sha256.New()
-	s.Write(data)
-	s.Write([]byte(hl.State))
-	h := s.Sum(extra)
+	s := util.NewSha256()
+	h := s.CalcMidState(data, []byte(hl.State), extra, hl.Length)
 	s.Reset()
-	return chainhash.NewHash(s.Sum(h))
+	s.Write(h[:])
+	return chainhash.NewHash(s.Sum(nil))
 }
 
 func ReadShares(r io.Reader) ([]Share, error) {
@@ -166,12 +165,19 @@ func ReadShares(r io.Reader) ([]Share, error) {
 
 		log.Printf("Type is %d", s.Type)
 
+		// REad length - not needed for us
+		len, err := ReadVarInt(r)
+		if err != nil {
+			return shares, err
+		}
+		log.Printf("Share message length is %d", len)
+
 		s.MinHeader, err = ReadSmallBlockHeader(r)
 		if err != nil {
 			return shares, err
 		}
 
-		log.Printf("Minheader is Prevblock: %s", s.MinHeader.PreviousBlock.String())
+		log.Printf("Minheader is Prevblock: %s, Version: %d, Timestamp: %d, Bits: %d, Nonce: %d", s.MinHeader.PreviousBlock.String(), s.MinHeader.Version, s.MinHeader.Timestamp, s.MinHeader.Bits, s.MinHeader.Nonce)
 
 		s.ShareInfo, err = ReadShareInfo(r, s.Type >= 17)
 		if err != nil {
@@ -201,11 +207,37 @@ func ReadShares(r io.Reader) ([]Share, error) {
 		if err != nil {
 			return shares, err
 		}
-		b := make([]byte, 32)
 
-		refHash, _ := GetRefHash(p2pnet.ActiveNetwork, s.ShareInfo, s.RefMerkleLink, true)
-		s.GenTXHash, _ = CalcHashLink(s.HashLink, refHash.CloneBytes(), GenTxBeforeRefHash)
-		s.MerkleRoot, _ = chainhash.NewHash(b)
+		s.RefHash, _ = GetRefHash(p2pnet.ActiveNetwork, s.ShareInfo, s.RefMerkleLink, s.Type >= 17)
+
+		var buf bytes.Buffer
+		buf.Write(s.RefHash.CloneBytes())
+		binary.Write(&buf, binary.LittleEndian, s.LastTxOutNonce)
+		binary.Write(&buf, binary.LittleEndian, int32(0))
+		logging.Debugf("GenTxBeforeRefHash: %x", GenTxBeforeRefHash)
+		s.GenTXHash, err = CalcHashLink(s.HashLink, buf.Bytes(), GenTxBeforeRefHash)
+		if err != nil {
+			return shares, err
+		}
+
+		merkleLink := s.MerkleLink
+		if s.Type >= 17 {
+			merkleLink = s.ShareInfo.SegwitData.TXIDMerkleLink
+		}
+		s.MerkleRoot, err = CalcMerkleLink(s.GenTXHash, merkleLink, 0)
+		if err != nil {
+			return shares, err
+		}
+
+		buf.Reset()
+
+		hdr := btcwire.NewBlockHeader(s.MinHeader.Version, s.MinHeader.PreviousBlock, s.MerkleRoot, s.MinHeader.Bits, s.MinHeader.Nonce)
+		hdr.Timestamp = time.Unix(int64(s.MinHeader.Timestamp), 0)
+		hdr.Serialize(&buf)
+
+		logging.Debugf("Header: %x", buf.Bytes())
+
+		s.Hash, _ = chainhash.NewHash(util.Sha256d(buf.Bytes()))
 
 		shares = append(shares, s)
 	}
@@ -250,8 +282,9 @@ func (m *MsgShares) Command() string {
 
 func init() {
 	DonationScript, _ = hex.DecodeString("410418a74130b2f4fad899d8ed2bff272bc43a03c8ca72897ae3da584d7a770b5a9ea8dd1b37a620d27c6cf6d5a7a9bbd6872f5981e95816d701d94f201c5d093be6ac")
-	GenTxBeforeRefHash = make([]byte, len(DonationScript)+11)
-	copy(GenTxBeforeRefHash, DonationScript)
-	copy(GenTxBeforeRefHash[len(DonationScript)+8:], []byte{42, 0x6A, 0x28})
+	GenTxBeforeRefHash = make([]byte, len(DonationScript)+12)
+	copy(GenTxBeforeRefHash, []byte{byte(len(DonationScript))})
+	copy(GenTxBeforeRefHash[1:], DonationScript)
+	copy(GenTxBeforeRefHash[len(DonationScript)+9:], []byte{42, 0x6A, 0x28})
 
 }

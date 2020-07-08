@@ -205,12 +205,12 @@ func init() {
 }
 
 func ReadSmallBlockHeader(r io.Reader) (SmallBlockHeader, error) {
-	var err error
 	sbh := SmallBlockHeader{}
-	err = binary.Read(r, binary.LittleEndian, &sbh.Version)
+	u64, err := ReadVarInt(r)
 	if err != nil {
 		return sbh, err
 	}
+	sbh.Version = int32(u64)
 	sbh.PreviousBlock, err = ReadChainHash(r)
 	if err != nil {
 		return sbh, err
@@ -231,7 +231,7 @@ func ReadSmallBlockHeader(r io.Reader) (SmallBlockHeader, error) {
 }
 
 func WriteSmallBlockHeader(w io.Writer, sbh SmallBlockHeader) error {
-	err := binary.Write(w, binary.LittleEndian, &sbh.Version)
+	err := WriteVarInt(w, uint64(sbh.Version))
 	if err != nil {
 		return err
 	}

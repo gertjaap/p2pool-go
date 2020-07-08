@@ -1,11 +1,14 @@
 package util
 
 import (
+	"crypto/rand"
 	"crypto/sha256"
 	"fmt"
 	"io/ioutil"
 	"net"
 	"net/http"
+
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 )
 
 func GetMyPublicIP() (net.IP, error) {
@@ -31,4 +34,11 @@ func Sha256d(b []byte) []byte {
 	h := sha256.Sum256(b)
 	h = sha256.Sum256(h[:])
 	return h[:]
+}
+
+func GetRandomId() *chainhash.Hash {
+	idBytes := make([]byte, 32)
+	rand.Read(idBytes)
+	id, _ := chainhash.NewHash(idBytes)
+	return id
 }

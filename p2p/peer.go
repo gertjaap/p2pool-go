@@ -69,6 +69,9 @@ func (p *Peer) IncomingLoop() {
 		case *wire.MsgShares:
 			logging.Debugf("Received %d shares, sending to sharechain", len(t.Shares))
 			p.sharesChan <- t.Shares
+		case *wire.MsgShareReply:
+			logging.Debugf("Received %d shares, sending to sharechain", len(t.Shares))
+			p.sharesChan <- t.Shares
 		}
 	}
 }
