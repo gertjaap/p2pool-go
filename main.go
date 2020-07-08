@@ -14,7 +14,19 @@ func main() {
 	p2pnet.ActiveNetwork = p2pnet.Vertcoin()
 
 	sc := work.NewShareChain()
+	err := sc.Load()
+	if err != nil {
+		panic(err)
+	}
+
+	//return
 	pm := p2p.NewPeerManager(p2pnet.ActiveNetwork, sc)
+
+	go func() {
+		for s := range sc.NeedShareChannel {
+			pm.AskForShare(s)
+		}
+	}()
 
 	for {
 		logging.Debugf("Number of active peers: %d", pm.GetPeerCount())

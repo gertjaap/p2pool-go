@@ -9,8 +9,9 @@ This is a re-implementation of P2Pool in Go. Initially this supports Vertcoin, b
 Currently the following things are planned/completed:
 
 - [X] Allow connecting to p2pool nodes (wire protocol implementation)
-- [ ] Address manager for managing connections to other peers
-- [ ] Retrieving the sharechain from other peers
+- [X] Peermanager for managing connections to other peers
+- [X] Retrieving the sharechain from other peers
+- [X] Building the sharechain
 - [ ] Validating the sharechain
 - [ ] Connecting to a fullnode over RPC
 - [ ] Retrieve block template from fullnode

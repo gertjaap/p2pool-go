@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/gertjaap/p2pool-go/logging"
 	p2poolnet "github.com/gertjaap/p2pool-go/net"
 	"github.com/gertjaap/p2pool-go/util"
 	"github.com/gertjaap/p2pool-go/wire"
@@ -67,10 +66,8 @@ func (p *Peer) IncomingLoop() {
 		case *wire.MsgAddrs:
 			p.newPeers <- t.Addresses
 		case *wire.MsgShares:
-			logging.Debugf("Received %d shares, sending to sharechain", len(t.Shares))
 			p.sharesChan <- t.Shares
 		case *wire.MsgShareReply:
-			logging.Debugf("Received %d shares, sending to sharechain", len(t.Shares))
 			p.sharesChan <- t.Shares
 		}
 	}

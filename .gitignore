@@ -1,3 +1,6 @@
 p2pool-go
 debugproxy/debugproxy
 p2pool.log
+debug.go
+sharechain.dat
+p2pool-go.log

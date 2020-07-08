@@ -91,7 +91,7 @@ func (p *PeerManager) ShareAskLoop() {
 				}
 				pr.Connection.Outgoing <- &wire.MsgShareReq{
 					ID:      util.GetRandomId(),
-					Parents: 100,
+					Parents: 1000,
 					Stops:   stops,
 					Hashes:  []*chainhash.Hash{h},
 				}
@@ -161,7 +161,7 @@ func (p *PeerManager) AddPeerWithPort(ip net.IP, port int) error {
 	if !skipAsk {
 		peer.Connection.Outgoing <- &wire.MsgShareReq{
 			ID:      util.GetRandomId(),
-			Parents: 100,
+			Parents: 1000,
 			Stops:   stops,
 			Hashes:  []*chainhash.Hash{peer.versionInfo.BestShareHash},
 		}

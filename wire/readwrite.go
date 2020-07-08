@@ -8,13 +8,11 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"log"
 	"math"
 	"math/big"
 	"net"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/gertjaap/p2pool-go/logging"
 )
 
 var nullHash *chainhash.Hash
@@ -273,8 +271,6 @@ func ReadChainHashList(r io.Reader) ([]*chainhash.Hash, error) {
 		return list, err
 	}
 
-	log.Printf("Reading chainhash list of %d elements", count)
-
 	for i := uint64(0); i < count; i++ {
 		h, err := ReadChainHash(r)
 		if err != nil {
@@ -368,7 +364,6 @@ func ReadTransactionHashRefList(r io.Reader) ([]TransactionHashRef, error) {
 		return list, err
 	}
 
-	logging.Debugf("Reading transactionhashreflist of %d", count)
 	for i := uint64(0); i < count; i++ {
 		thr, err := ReadTransactionHashRef(r)
 		if err != nil {
@@ -403,6 +398,14 @@ func ReadHashLink(r io.Reader) (HashLink, error) {
 	}
 	hl.Length, err = ReadVarInt(r)
 	return hl, err
+}
+
+func WriteHashLink(w io.Writer, hl HashLink) error {
+	err := WriteFixedString(w, 32, hl.State)
+	if err != nil {
+		return err
+	}
+	return WriteVarInt(w, hl.Length)
 }
 
 func ReadFixedString(r io.Reader, len int) (string, error) {
@@ -459,8 +462,6 @@ func ReadShareInfo(r io.Reader, segwit bool) (ShareInfo, error) {
 	if err != nil {
 		return si, err
 	}
-
-	logging.Debugf("Share data read. Nonce: %d, Coinbase: %s, Subsidy: %d, Donation: %d, StaleInfo: %d ", si.ShareData.Nonce, si.ShareData.CoinBase, si.ShareData.Subsidy, si.ShareData.Donation, si.ShareData.StaleInfo)
 
 	if segwit {
 		si.SegwitData, err = ReadSegwitData(r)

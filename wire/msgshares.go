@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"encoding/hex"
+	"fmt"
 	"io"
 	"log"
 	"math/big"
@@ -112,14 +113,12 @@ func GetRefHash(n p2pnet.Network, si ShareInfo, refMerkleLink []*chainhash.Hash,
 		return nil, err
 	}
 
-	logging.Debugf("get_ref_hash_check_merkle_link_hash_input: %x", buf.Bytes())
 	tip, _ := chainhash.NewHash(util.Sha256d(buf.Bytes()))
-	logging.Debugf("get_ref_hash_check_merkle_link_input: %x", tip.CloneBytes())
 	return CalcMerkleLink(tip, refMerkleLink, 0)
 }
 
 func CalcMerkleLink(tip *chainhash.Hash, link []*chainhash.Hash, linkIndex int) (*chainhash.Hash, error) {
-	link = append(link, tip)
+	link = append([]*chainhash.Hash{tip}, link...)
 	if len(link) == 1 {
 		return link[0], nil
 	}
@@ -127,7 +126,7 @@ func CalcMerkleLink(tip *chainhash.Hash, link []*chainhash.Hash, linkIndex int) 
 	for i := 1; i < len(link); i++ {
 		hashBytes := make([]byte, 64)
 		hIdx, nIdx := 0, 32
-		if linkIndex>>i&1 == 1 {
+		if (linkIndex>>i)&1 == 1 {
 			nIdx, hIdx = 0, 32
 		}
 		copy(hashBytes[hIdx:], h.CloneBytes())
@@ -155,7 +154,7 @@ func ReadShares(r io.Reader) ([]Share, error) {
 	if err != nil {
 		return shares, err
 	}
-	log.Printf("Deserializing %d shares", count)
+	logging.Debugf("Deserializing %d shares", count)
 	for i := uint64(0); i < count; i++ {
 		s := Share{}
 		s.Type, err = ReadVarInt(r)
@@ -163,28 +162,21 @@ func ReadShares(r io.Reader) ([]Share, error) {
 			return shares, err
 		}
 
-		log.Printf("Type is %d", s.Type)
-
 		// REad length - not needed for us
-		len, err := ReadVarInt(r)
+		_, err := ReadVarInt(r)
 		if err != nil {
 			return shares, err
 		}
-		log.Printf("Share message length is %d", len)
 
 		s.MinHeader, err = ReadSmallBlockHeader(r)
 		if err != nil {
 			return shares, err
 		}
 
-		log.Printf("Minheader is Prevblock: %s, Version: %d, Timestamp: %d, Bits: %d, Nonce: %d", s.MinHeader.PreviousBlock.String(), s.MinHeader.Version, s.MinHeader.Timestamp, s.MinHeader.Bits, s.MinHeader.Nonce)
-
 		s.ShareInfo, err = ReadShareInfo(r, s.Type >= 17)
 		if err != nil {
 			return shares, err
 		}
-
-		log.Printf("Read shareinfo. MaxBits %d, Bits %d, AbsHeight %d, AbsWork: %x", s.ShareInfo.MaxBits, s.ShareInfo.Bits, s.ShareInfo.AbsHeight, s.ShareInfo.AbsWork.Bytes())
 
 		s.RefMerkleLink, err = ReadChainHashList(r)
 		if err != nil {
@@ -195,8 +187,6 @@ func ReadShares(r io.Reader) ([]Share, error) {
 		if err != nil {
 			return shares, err
 		}
-
-		log.Printf("Read lasttxoutnonce: %d", s.LastTxOutNonce)
 
 		s.HashLink, err = ReadHashLink(r)
 		if err != nil {
@@ -214,7 +204,6 @@ func ReadShares(r io.Reader) ([]Share, error) {
 		buf.Write(s.RefHash.CloneBytes())
 		binary.Write(&buf, binary.LittleEndian, s.LastTxOutNonce)
 		binary.Write(&buf, binary.LittleEndian, int32(0))
-		logging.Debugf("GenTxBeforeRefHash: %x", GenTxBeforeRefHash)
 		s.GenTXHash, err = CalcHashLink(s.HashLink, buf.Bytes(), GenTxBeforeRefHash)
 		if err != nil {
 			return shares, err
@@ -235,13 +224,70 @@ func ReadShares(r io.Reader) ([]Share, error) {
 		hdr.Timestamp = time.Unix(int64(s.MinHeader.Timestamp), 0)
 		hdr.Serialize(&buf)
 
-		logging.Debugf("Header: %x", buf.Bytes())
-
 		s.Hash, _ = chainhash.NewHash(util.Sha256d(buf.Bytes()))
 
 		shares = append(shares, s)
 	}
 	return shares, nil
+}
+
+func WriteShares(w io.Writer, shares []Share) error {
+	err := WriteVarInt(w, uint64(len(shares)))
+	if err != nil {
+		return err
+	}
+	for _, s := range shares {
+		err = WriteVarInt(w, uint64(s.Type))
+		if err != nil {
+			return err
+		}
+
+		var buf bytes.Buffer
+
+		err = WriteSmallBlockHeader(&buf, s.MinHeader)
+		if err != nil {
+			return err
+		}
+
+		err = WriteShareInfo(&buf, s.ShareInfo, s.Type >= 17)
+		if err != nil {
+			return err
+		}
+
+		err = WriteChainHashList(&buf, s.RefMerkleLink)
+		if err != nil {
+			return err
+		}
+
+		err = binary.Write(&buf, binary.LittleEndian, s.LastTxOutNonce)
+		if err != nil {
+			return err
+		}
+		err = WriteHashLink(&buf, s.HashLink)
+		if err != nil {
+			return err
+		}
+		err = WriteChainHashList(&buf, s.MerkleLink)
+		if err != nil {
+			return err
+		}
+
+		b := buf.Bytes()
+
+		err = WriteVarInt(w, uint64(len(b)))
+		if err != nil {
+			return err
+		}
+
+		i, err := w.Write(b)
+		if err != nil {
+			return err
+		}
+		if i != len(b) {
+			return fmt.Errorf("Could not write share data: %d vs %d", i, len(b))
+		}
+	}
+	return nil
 }
 
 func (m *MsgShares) FromBytes(b []byte) error {
