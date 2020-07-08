@@ -396,19 +396,59 @@ func ReadTransactionHashRef(r io.Reader) (TransactionHashRef, error) {
 
 func ReadHashLink(r io.Reader) (HashLink, error) {
 	hl := HashLink{}
-
-	stateBytes := make([]byte, 32)
-	i, err := r.Read(stateBytes)
+	var err error
+	hl.State, err = ReadFixedString(r, 32)
 	if err != nil {
 		return hl, err
 	}
-	if i != 32 {
-		return hl, fmt.Errorf("Hashlink state not 32 bytes")
-	}
-	hl.State = string(stateBytes)
-	log.Printf("Hashlink State: %s", hl.State)
 	hl.Length, err = ReadVarInt(r)
 	return hl, err
+}
+
+func ReadFixedString(r io.Reader, len int) (string, error) {
+	b := make([]byte, len)
+	i, err := r.Read(b)
+	if err != nil {
+		return "", err
+	}
+	if i != len {
+		return "", fmt.Errorf("Could not read fixed string length %d - got %d", len, i)
+	}
+	return string(b), nil
+}
+
+func WriteFixedString(w io.Writer, len int, s string) error {
+	b := make([]byte, len)
+	copy(b, []byte(s)[:len])
+	i, err := w.Write(b)
+	if err != nil {
+		return err
+	}
+	if i != len {
+		return fmt.Errorf("Could not write fixed string length %d - got %d", len, i)
+	}
+	return nil
+}
+
+func ReadRef(r io.Reader, segwit bool) (Ref, error) {
+	ref := Ref{}
+
+	var err error
+	ref.Identifier, err = ReadFixedString(r, 8)
+	if err != nil {
+		return ref, err
+	}
+	ref.ShareInfo, err = ReadShareInfo(r, segwit)
+	return ref, err
+}
+
+func WriteRef(w io.Writer, ref Ref, segwit bool) error {
+	var err error
+	err = WriteFixedString(w, 8, ref.Identifier)
+	if err != nil {
+		return err
+	}
+	return WriteShareInfo(w, ref.ShareInfo, segwit)
 }
 
 func ReadShareInfo(r io.Reader, segwit bool) (ShareInfo, error) {
@@ -471,4 +511,160 @@ func ReadShareInfo(r io.Reader, segwit bool) (ShareInfo, error) {
 	si.AbsWork = big.NewInt(0).SetBytes(absWork)
 
 	return si, nil
+}
+
+func WriteShareInfo(w io.Writer, si ShareInfo, segwit bool) error {
+	var err error
+
+	err = WriteShareData(w, si.ShareData)
+	if err != nil {
+		return err
+	}
+
+	if segwit {
+		err = WriteSegwitData(w, si.SegwitData)
+		if err != nil {
+			return err
+		}
+	}
+
+	err = WriteChainHashList(w, si.NewTransactionHashes)
+	if err != nil {
+		return err
+	}
+
+	err = WriteTransactionHashRefList(w, si.TransactionHashRefs)
+	if err != nil {
+		return err
+	}
+
+	err = WriteChainHash(w, si.FarShareHash)
+	if err != nil {
+		return err
+	}
+
+	err = binary.Write(w, binary.LittleEndian, si.MaxBits)
+	if err != nil {
+		return err
+	}
+	err = binary.Write(w, binary.LittleEndian, si.Bits)
+	if err != nil {
+		return err
+	}
+	err = binary.Write(w, binary.LittleEndian, si.Timestamp)
+	if err != nil {
+		return err
+	}
+	err = binary.Write(w, binary.LittleEndian, si.AbsHeight)
+	if err != nil {
+		return err
+	}
+
+	absWork := make([]byte, 16) // 128 bit
+	absWorkBytes := si.AbsWork.Bytes()
+	copy(absWork[16-len(absWorkBytes):], absWorkBytes)
+
+	i, err := w.Write(absWork)
+	if err != nil {
+		return err
+	}
+	if i < 16 {
+		return fmt.Errorf("Could not write abswork 16 bytes, wrote %d in stead", i)
+	}
+
+	return nil
+}
+
+func WriteShareData(w io.Writer, sd ShareData) error {
+	var err error
+	err = WriteChainHash(w, sd.PreviousShareHash)
+	if err != nil {
+		return err
+	}
+
+	err = WriteVarString(w, sd.CoinBase)
+	if err != nil {
+		return err
+	}
+
+	err = binary.Write(w, binary.LittleEndian, sd.Nonce)
+	if err != nil {
+		return err
+	}
+
+	i, err := w.Write(sd.PubKeyHash)
+	if err != nil {
+		return err
+	}
+
+	if i < 20 {
+		return fmt.Errorf("Could not write pubkeyhash. Expected 20 bytes, got %d", i)
+	}
+
+	err = binary.Write(w, binary.LittleEndian, sd.PubKeyHashVersion)
+	if err != nil {
+		return err
+	}
+	err = binary.Write(w, binary.LittleEndian, sd.Subsidy)
+	if err != nil {
+		return err
+	}
+	err = binary.Write(w, binary.LittleEndian, sd.Donation)
+	if err != nil {
+		return err
+	}
+
+	err = binary.Write(w, binary.LittleEndian, uint8(sd.StaleInfo))
+	if err != nil {
+		return err
+	}
+
+	err = WriteVarInt(w, sd.DesiredVersion)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func WriteSegwitData(w io.Writer, sd SegwitData) error {
+	err := WriteChainHashList(w, sd.TXIDMerkleLink)
+	if err != nil {
+		return err
+	}
+
+	err = WriteChainHash(w, sd.WTXIDMerkleRoot)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func WriteTransactionHashRefList(w io.Writer, list []TransactionHashRef) error {
+	err := WriteVarInt(w, uint64(len(list)))
+	if err != nil {
+		return err
+	}
+
+	for _, hr := range list {
+		err = WriteTransactionHashRef(w, hr)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func WriteTransactionHashRef(w io.Writer, thr TransactionHashRef) error {
+	err := WriteVarInt(w, thr.ShareCount)
+	if err != nil {
+		return err
+	}
+	err = WriteVarInt(w, thr.TxCount)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }

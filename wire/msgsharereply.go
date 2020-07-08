@@ -4,6 +4,7 @@ import (
 	"bytes"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/gertjaap/p2pool-go/logging"
 )
 
 var _ P2PoolMessage = &MsgShareReply{}
@@ -27,6 +28,7 @@ type MsgShareReply struct {
 }
 
 func (m *MsgShareReply) FromBytes(b []byte) error {
+	logging.Debugf("Received sharereply: %x", b)
 	r := bytes.NewReader(b)
 	var err error
 	m.ID, err = ReadChainHash(r)

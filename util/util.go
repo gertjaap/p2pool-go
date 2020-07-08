@@ -1,6 +1,7 @@
 package util
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"io/ioutil"
 	"net"
@@ -24,4 +25,10 @@ func GetMyPublicIP() (net.IP, error) {
 		return nil, err
 	}
 	return net.ParseIP(string(ip)), nil
+}
+
+func Sha256d(b []byte) []byte {
+	h := sha256.Sum256(b)
+	h = sha256.Sum256(h[:])
+	return h[:]
 }

@@ -3,7 +3,7 @@ package work
 import (
 	"sync"
 
-	"github.com/decred/dcrd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/gertjaap/p2pool-go/wire"
 )
 

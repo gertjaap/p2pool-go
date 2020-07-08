@@ -6,6 +6,7 @@ import (
 	"net"
 	"time"
 
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/gertjaap/p2pool-go/logging"
 	p2poolnet "github.com/gertjaap/p2pool-go/net"
 	"github.com/gertjaap/p2pool-go/util"
@@ -47,6 +48,10 @@ func NewPeer(ip net.IP, port int, n p2poolnet.Network, newPeers chan []wire.Addr
 	go p.PingLoop()
 
 	return &p, nil
+}
+
+func (p *Peer) BestShare() *chainhash.Hash {
+	return p.versionInfo.BestShareHash
 }
 
 func (p *Peer) PingLoop() {

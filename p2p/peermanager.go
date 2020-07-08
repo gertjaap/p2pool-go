@@ -87,7 +87,7 @@ func (p *PeerManager) ShareAskLoop() {
 				id, _ := chainhash.NewHash(idBytes)
 				pr.Connection.Outgoing <- &wire.MsgShareReq{
 					ID:      id,
-					Parents: 1000,
+					Parents: 0,
 					Stops:   make([]*chainhash.Hash, 0),
 					Hashes:  []*chainhash.Hash{h},
 				}
