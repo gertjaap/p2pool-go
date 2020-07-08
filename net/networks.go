@@ -1,6 +1,10 @@
 package net
 
-import "encoding/hex"
+import (
+	"encoding/hex"
+
+	"github.com/adamcollier1/lyra2rev3"
+)
 
 var ActiveNetwork Network
 
@@ -10,6 +14,7 @@ type Network struct {
 	P2PPort       int
 	SeedHosts     []string
 	ChainLength   int
+	POWHash       func([]byte) []byte
 }
 
 func Vertcoin() Network {
@@ -18,5 +23,9 @@ func Vertcoin() Network {
 	n.Identifier, _ = hex.DecodeString("a06a81c827cab983")
 	n.ChainLength = 5100
 	n.SeedHosts = []string{"localhost", "p2proxy.vertcoin.org", "vtc.alwayshashing.com", "crypto.office-on-the.net", "pool.vtconline.org"}
+	n.POWHash = func(b []byte) []byte {
+		res, _ := lyra2rev3.SumV3(b)
+		return res
+	}
 	return n
 }

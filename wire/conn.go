@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
-	"log"
 	"net"
 	"sync"
 
@@ -64,7 +63,6 @@ func (c *P2PoolConnection) ReadBytes(len int) ([]byte, error) {
 		if read == len {
 			break
 		}
-		log.Printf("Read %d bytes - len = %d", read, len)
 	}
 
 	return buf, nil

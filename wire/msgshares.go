@@ -10,6 +10,8 @@ import (
 	"math/big"
 	"time"
 
+	"github.com/btcsuite/btcd/blockchain"
+
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	btcwire "github.com/btcsuite/btcd/wire"
 	"github.com/gertjaap/p2pool-go/logging"
@@ -35,6 +37,7 @@ type Share struct {
 	MerkleRoot     *chainhash.Hash
 	RefHash        *chainhash.Hash
 	Hash           *chainhash.Hash
+	POWHash        *chainhash.Hash
 }
 
 type HashLink struct {
@@ -223,12 +226,23 @@ func ReadShares(r io.Reader) ([]Share, error) {
 		hdr := btcwire.NewBlockHeader(s.MinHeader.Version, s.MinHeader.PreviousBlock, s.MerkleRoot, s.MinHeader.Bits, s.MinHeader.Nonce)
 		hdr.Timestamp = time.Unix(int64(s.MinHeader.Timestamp), 0)
 		hdr.Serialize(&buf)
+		headerBytes := buf.Bytes()
 
-		s.Hash, _ = chainhash.NewHash(util.Sha256d(buf.Bytes()))
+		s.POWHash, _ = chainhash.NewHash(p2pnet.ActiveNetwork.POWHash(headerBytes[:]))
+		s.Hash, _ = chainhash.NewHash(util.Sha256d(headerBytes[:]))
 
 		shares = append(shares, s)
 	}
 	return shares, nil
+}
+
+func (s Share) IsValid() bool {
+	target := blockchain.CompactToBig(uint32(s.ShareInfo.Bits))
+	bnHash := blockchain.HashToBig(s.POWHash)
+	if bnHash.Cmp(target) >= 0 {
+		return false
+	}
+	return true
 }
 
 func WriteShares(w io.Writer, shares []Share) error {

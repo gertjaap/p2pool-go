@@ -1,6 +1,7 @@
 package work
 
 import (
+	"fmt"
 	"os"
 	"sync"
 
@@ -69,6 +70,12 @@ func (sc *ShareChain) Resolve(skipCommit bool) {
 		sc.disconnectedShareLock.Lock()
 		newDisconnectedShares := make([]*wire.Share, 0)
 		for _, s := range sc.disconnectedShares {
+			_, ok := sc.AllShares[s.Hash.String()]
+			if ok {
+				// Duplicate
+				continue
+			}
+
 			es, ok := sc.AllShares[s.ShareInfo.ShareData.PreviousShareHash.String()]
 			if ok {
 				newChainShare := &ChainShare{Share: s, Previous: es}
@@ -160,6 +167,12 @@ func (sc *ShareChain) Load() error {
 		return err
 	}
 
+	for _, s := range shares {
+		if !s.IsValid() {
+			return fmt.Errorf("Invalid share found")
+		}
+	}
+
 	sc.disconnectedShareLock.Lock()
 	sc.disconnectedShares = make([]*wire.Share, len(shares))
 	for i := range shares {
@@ -179,7 +192,14 @@ func (sc *ShareChain) AddShares(s []wire.Share) {
 
 	sc.disconnectedShareLock.Lock()
 	for i := range s {
-		sc.disconnectedShares = append(sc.disconnectedShares, &s[i])
+		if s[i].IsValid() {
+			_, ok := sc.AllShares[s[i].Hash.String()]
+			if !ok {
+				sc.disconnectedShares = append(sc.disconnectedShares, &s[i])
+			}
+		} else {
+			logging.Warnf("Ignoring invalid share %s", s[i].Hash.String())
+		}
 	}
 	sc.disconnectedShareLock.Unlock()
 
